@@ -1,4 +1,4 @@
-import { User } from "../entities/User";
+import argon2 from "argon2";
 import { MyContext } from "src/types";
 import {
   Arg,
@@ -7,9 +7,10 @@ import {
   InputType,
   Mutation,
   ObjectType,
-  Resolver,
+  Query,
+  Resolver
 } from "type-graphql";
-import argon2 from "argon2";
+import { User } from "../entities/User";
 
 @InputType()
 class UsernamePasswordInput {
@@ -40,10 +41,22 @@ class FieldError {
 
 @Resolver()
 export class UserResolver {
+
+  @Query(()=> User, { nullable: true})
+  async me(
+    @Ctx(){req, em}: MyContext) {
+      if(!req.session.userId){
+        return null;
+      }
+
+      const user = await em.findOne(User, {id: req.session.userId});
+      return user
+    }
+
   @Mutation(() => UserResponse)
   async register(
     @Arg("options") options: UsernamePasswordInput,
-    @Ctx() { em }: MyContext
+    @Ctx() { em, req }: MyContext
   ): Promise<UserResponse> {
     if (options.username.length <= 2) {
       return {
@@ -84,13 +97,14 @@ export class UserResolver {
       }
       console.error(error.message);
     }
+    req.session.userId = user.id;
     return { user };
   }
 
   @Mutation(() => UserResponse)
   async login(
     @Arg("options") options: UsernamePasswordInput,
-    @Ctx() { em }: MyContext
+    @Ctx() { em, req}: MyContext
   ): Promise<UserResponse> {
     const user = await em.findOne(User, { username: options.username });
     if (!user) {
@@ -105,6 +119,8 @@ export class UserResolver {
         errors: [{ field: "password", message: "password does not match" }],
       };
     }
+
+    req.session.userId = user.id;
 
     return {
       user
