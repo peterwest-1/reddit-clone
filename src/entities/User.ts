@@ -21,8 +21,15 @@ export class User {
     @Property({type: 'text', unique: true})
     username!: string;
 
-    //No field property, cant be queried i think
+    @Field()
+    @Property({type: 'text', unique: true})
+    email!: string;
+
+    //No field property, cant be queried I think
     @Property({type: 'text'})
     password!: string;
 
+
+
+    //run yarn create:migration after the file was updated
 }
