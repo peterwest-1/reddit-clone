@@ -15,6 +15,7 @@ import { PostResolver } from "./resolvers/post";
 import { UserResolver } from "./resolvers/user";
 import { MyContext } from "./types";
 import path from "path"
+require('dotenv').config()
 
 const main = async () => {
 
@@ -22,7 +23,7 @@ const main = async () => {
     type: 'postgres',
     database: 'reddit-clone-database',
     username: 'postgres',
-    password: 'PrettyLights1',
+    password: process.env.DB_PASSWORD,
     logging: !__prod__,
     synchronize: true,
     migrations: [
@@ -33,8 +34,7 @@ const main = async () => {
     ]
   })
 
-  await connection.runMigrations();
-
+  //await connection.runMigrations();
   const app = express();
  
   let RedisStore = require("connect-redis")(session)
