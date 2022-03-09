@@ -15,37 +15,34 @@ import { User } from "./entities/User";
 import { PostResolver } from "./resolvers/post";
 import { UserResolver } from "./resolvers/user";
 import { MyContext } from "./types";
-require('dotenv').config()
+import { createUpvoteLoader } from "./utils/createUpvoteLoader";
+import { createUserLoader } from "./utils/createUserLoader";
+require("dotenv").config();
 
 const main = async () => {
-
   await createConnection({
-    type: 'postgres',
-    database: 'reddit-clone-database',
-    username: 'postgres',
+    type: "postgres",
+    database: "reddit-clone-database",
+    username: "postgres",
     password: process.env.DB_PASSWORD,
     logging: !__prod__,
     synchronize: true,
-    migrations: [
-      path.join(__dirname, "./migrations/*")
-    ],
-    entities:[ 
-      User, Post, Upvote
-    ]
-  })
+    migrations: [path.join(__dirname, "./migrations/*")],
+    entities: [User, Post, Upvote],
+  });
 
   //await connection.runMigrations();
   const app = express();
- 
-  let RedisStore = require("connect-redis")(session)
+
+  let RedisStore = require("connect-redis")(session);
   const redis = new Redis();
-  
+
   app.use(
     cors({
       origin: "http://localhost:3000",
       credentials: true,
     })
-  )
+  );
 
   app.use(
     session({
@@ -55,7 +52,7 @@ const main = async () => {
         disableTouch: true,
       }),
       saveUninitialized: false,
-      secret: String(process.env.SESSION_SECRET) ,
+      secret: String(process.env.SESSION_SECRET),
       resave: false,
       cookie: {
         maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
@@ -68,22 +65,22 @@ const main = async () => {
 
   const apolloServer = new ApolloServer({
     schema: await buildSchema({
-      resolvers: [ PostResolver, UserResolver],
+      resolvers: [PostResolver, UserResolver],
       validate: false,
     }),
     context: ({ req, res }): MyContext => ({
       req,
       res,
-      redis
+      redis,
+      userLoader: createUserLoader(),
+      upvoteLoader: createUpvoteLoader(),
     }),
-    plugins:[
-      ApolloServerPluginLandingPageGraphQLPlayground
-    ]
+    plugins: [ApolloServerPluginLandingPageGraphQLPlayground],
   });
-  
+
   await apolloServer.start();
 
-  apolloServer.applyMiddleware({ app, cors: false});
+  apolloServer.applyMiddleware({ app, cors: false });
   app.listen(4000, () => {
     console.info("Server started on http://localhost:%s", 4000);
   });
@@ -92,4 +89,3 @@ const main = async () => {
 main().catch((error) => {
   console.error(error);
 });
-
