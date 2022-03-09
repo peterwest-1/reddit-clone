@@ -1,6 +1,7 @@
 import { ApolloServerPluginLandingPageGraphQLPlayground } from "apollo-server-core";
 import { ApolloServer } from "apollo-server-express";
 import cors from "cors";
+import "dotenv-safe/config";
 import express from "express";
 import session from "express-session";
 import Redis from "ioredis";
@@ -20,26 +21,25 @@ import { createUserLoader } from "./utils/createUserLoader";
 require("dotenv").config();
 
 const main = async () => {
-  await createConnection({
+  const connection = await createConnection({
     type: "postgres",
-    database: "reddit-clone-database",
-    username: "postgres",
-    password: process.env.DB_PASSWORD,
+    url: process.env.DATABASE_URL,
     logging: !__prod__,
-    synchronize: true,
     migrations: [path.join(__dirname, "./migrations/*")],
     entities: [User, Post, Upvote],
   });
 
-  //await connection.runMigrations();
+  await connection.runMigrations();
+
   const app = express();
 
   let RedisStore = require("connect-redis")(session);
-  const redis = new Redis();
+  const redis = new Redis(process.env.REDIS_URL);
 
+  app.set("proxy", 1);
   app.use(
     cors({
-      origin: "http://localhost:3000",
+      origin: process.env.CORS_ORIGIN,
       credentials: true,
     })
   );
@@ -52,13 +52,14 @@ const main = async () => {
         disableTouch: true,
       }),
       saveUninitialized: false,
-      secret: String(process.env.SESSION_SECRET),
+      secret: process.env.SESSION_SECRET,
       resave: false,
       cookie: {
         maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
         httpOnly: true,
         sameSite: "lax",
         secure: __prod__, // does not work in local // https
+        domain: __prod__ ? "" : undefined, // Set when domain
       },
     })
   );
@@ -81,8 +82,8 @@ const main = async () => {
   await apolloServer.start();
 
   apolloServer.applyMiddleware({ app, cors: false });
-  app.listen(4000, () => {
-    console.info("Server started on http://localhost:%s", 4000);
+  app.listen(parseInt(process.env.PORT), () => {
+    console.info("Server started on http://localhost:%s", process.env.PORT);
   });
 };
 

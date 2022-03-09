@@ -4,6 +4,13 @@
 
 ## Notes
 
+Change sendEmail in forgotPassword in User resolver
+
+### Useful commands
+
+npx typeorm migration:generate -n Initial
+npx typeorm migration:create -n MockPosts
+
 ### Sessions
 
 req.session.userId = user.id;
