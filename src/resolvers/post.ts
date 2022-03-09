@@ -16,6 +16,7 @@ import {
 import { Post } from "../entities/Post";
 import { isAuthenticated } from "../middleware/isAuthenticated";
 import { getConnection } from "typeorm";
+import { Upvote } from "../entities/Upvote";
 
 @InputType()
 class PostInput {
@@ -26,9 +27,9 @@ class PostInput {
 }
 
 @ObjectType()
-class PaginatedPosts{
-  @Field(()=> [Post])
-  posts: Post[]
+class PaginatedPosts {
+  @Field(() => [Post])
+  posts: Post[];
 
   @Field()
   hasMore: boolean;
@@ -41,31 +42,119 @@ export class PostResolver {
     return root.text.slice(0, 50);
   }
 
+  @Mutation(() => Boolean)
+  @UseMiddleware(isAuthenticated)
+  async vote(
+    @Arg("postId", () => Int) postId: number,
+    @Arg("value", () => Int) value: number,
+    @Ctx() { req }: MyContext
+  ) {
+    const isUpvote = value !== -1;
+    const _value = isUpvote ? 1 : -1;
+    const { userId } = req.session;
+
+    const upvote = await Upvote.findOne({ where: { postId, userId } });
+
+    // the user has voted on the post before
+    // and they are changing their vote
+    if (upvote && upvote.value !== _value) {
+      await getConnection().transaction(async (tm) => {
+        await tm.query(
+          `
+    update upvote
+    set value = $1
+    where "postId" = $2 and "userId" = $3
+        `,
+          [_value, postId, userId]
+        );
+
+        await tm.query(
+          `
+          update post
+          set points = points + $1
+          where id = $2
+        `,
+          [2 * _value, postId]
+        );
+      });
+    } else if (!upvote) {
+      // has never voted before
+      await getConnection().transaction(async (tm) => {
+        await tm.query(
+          `
+    insert into upvote ("userId", "postId", value)
+    values ($1, $2, $3)
+        `,
+          [userId, postId, _value]
+        );
+
+        await tm.query(
+          `
+    update post
+    set points = points + $1
+    where id = $2
+      `,
+          [_value, postId]
+        );
+      });
+    }
+    return true;
+  }
+
   @Query(() => PaginatedPosts)
   async posts(
     @Arg("limit", () => Int) limit: number,
-    @Arg("cursor", () => String, { nullable: true }) cursor: string | null
+    @Arg("cursor", () => String, { nullable: true }) cursor: string | null,
+    @Ctx() { req }: MyContext
   ): Promise<PaginatedPosts> {
     const maxLimit = Math.min(50, limit);
     const maxLimitPlusOne = maxLimit + 1;
-    const qb = getConnection()
-      .getRepository(Post)
-      .createQueryBuilder("p")
-      .orderBy('"createdAt"', "DESC") //Must in formatted like this otherwise createdat 
-      .take(maxLimitPlusOne);
 
-    if (cursor) {
-      qb.where('"createdAt" < :cursor', {
-        cursor: new Date(parseInt(cursor)),
-      });
+    const replacements: any[] = [maxLimitPlusOne];
+
+    if (req.session.userId) {
+      replacements.push(req.session.userId);
     }
-  const posts = await qb.getMany();
-    return {posts: posts.slice(0, maxLimit), hasMore: posts.length === maxLimitPlusOne};
+
+    let cursorIndex = 3;
+    if (cursor) {
+      replacements.push(new Date(parseInt(cursor)));
+      cursorIndex = replacements.length;
+    }
+
+    const posts = await getConnection().query(
+      `
+    select p.*,
+    json_build_object(
+      'id', u.id,
+      'username', u.username,
+      'email', u.email,
+      'createdAt', u."createdAt",
+      'updatedAt', u."updatedAt"
+      ) creator,
+    ${
+      req.session.userId
+        ? '(select value from upvote where "userId" = $2 and "postId" = p.id) "voteStatus"'
+        : 'null as "voteStatus"'
+    }
+    from post p
+    inner join public.user u on u.id = p."creatorId"
+    ${cursor ? `where p."createdAt" < $${cursorIndex}` : ""}
+    order by p."createdAt" DESC
+    limit $1
+    `,
+      replacements
+    );
+
+    return {
+      posts: posts.slice(0, maxLimit),
+      hasMore: posts.length === maxLimitPlusOne,
+    };
   }
 
   @Query(() => Post, { nullable: true })
-  post(@Arg("id") id: number): Promise<Post | undefined> {
-    return Post.findOne(id);
+  post(@Arg("id", () => Int) id: number): Promise<Post | undefined> {
+    return Post.findOne(id, { relations: ["creator"] });
   }
 
   @Mutation(() => Post)
@@ -81,24 +170,52 @@ export class PostResolver {
   }
 
   @Mutation(() => Post, { nullable: true })
+  @UseMiddleware(isAuthenticated)
   async updatePost(
-    @Arg("id") id: number,
-    // @Arg('title' ()=> String, {nullable: true}) title: string,
-    @Arg("title") title: string
+    @Arg("id", () => Int) id: number,
+    @Arg("input") input: PostInput,
+    @Ctx() { req }: MyContext
   ): Promise<Post | null> {
-    const post = await Post.findOne(id);
-    if (!post) {
-      return null;
-    }
-    if (typeof title !== "undefined") {
-      await Post.update({ id }, { title });
-    }
-    return post;
+    const title = input.title;
+    const text = input.text;
+    const result = await getConnection()
+      .createQueryBuilder()
+      .update(Post)
+      .set({ title, text })
+      .where('id = :id and "creatorId" = :creatorId', {
+        id,
+        creatorId: req.session.userId,
+      })
+      .returning("*")
+      .execute();
+
+    return result.raw[0];
   }
 
   @Mutation(() => Boolean)
-  async deletePost(@Arg("id") id: number): Promise<boolean> {
-    await Post.delete(id);
+  @UseMiddleware(isAuthenticated)
+  async deletePost(
+    @Arg("id", () => Int) id: number,
+    @Ctx() { req }: MyContext
+  ): Promise<boolean> {
+    /*
+    const post = await Post.findOne(id);
+
+    if (!post) {
+      return false;
+    }
+
+    if (post.creatorId !== req.session.userId) {
+      throw new Error("not authorized");
+    }
+
+    await Upvote.delete({ postId: id });
+    */
+    await Post.delete({ id, creatorId: req.session.userId });
+
+    //Cascading
+    //, creatorId: req.session.userId
+
     return true;
   }
 }

@@ -1,25 +1,25 @@
-import { ApolloServer } from "apollo-server-express";
 import { ApolloServerPluginLandingPageGraphQLPlayground } from "apollo-server-core";
+import { ApolloServer } from "apollo-server-express";
 import cors from "cors";
 import express from "express";
 import session from "express-session";
 import Redis from "ioredis";
+import path from "path";
 import "reflect-metadata";
 import { buildSchema } from "type-graphql";
 import { createConnection } from "typeorm";
 import { COOKIE_NAME, __prod__ } from "./constants";
 import { Post } from "./entities/Post";
+import { Upvote } from "./entities/Upvote";
 import { User } from "./entities/User";
-import { HelloResolver } from "./resolvers/hello";
 import { PostResolver } from "./resolvers/post";
 import { UserResolver } from "./resolvers/user";
 import { MyContext } from "./types";
-import path from "path"
 require('dotenv').config()
 
 const main = async () => {
 
-   const connection = await createConnection({
+  await createConnection({
     type: 'postgres',
     database: 'reddit-clone-database',
     username: 'postgres',
@@ -29,8 +29,8 @@ const main = async () => {
     migrations: [
       path.join(__dirname, "./migrations/*")
     ],
-    entities:[
-      User, Post
+    entities:[ 
+      User, Post, Upvote
     ]
   })
 
@@ -68,7 +68,7 @@ const main = async () => {
 
   const apolloServer = new ApolloServer({
     schema: await buildSchema({
-      resolvers: [HelloResolver, PostResolver, UserResolver],
+      resolvers: [ PostResolver, UserResolver],
       validate: false,
     }),
     context: ({ req, res }): MyContext => ({
@@ -89,8 +89,7 @@ const main = async () => {
   });
 };
 
-
-
 main().catch((error) => {
   console.error(error);
 });
+

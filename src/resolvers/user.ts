@@ -4,10 +4,12 @@ import {
   Arg,
   Ctx,
   Field,
+  FieldResolver,
   Mutation,
   ObjectType,
   Query,
   Resolver,
+  Root,
 } from "type-graphql";
 import { getConnection } from "typeorm";
 import { v4 } from "uuid";
@@ -35,8 +37,19 @@ class FieldError {
   message: string;
 }
 
-@Resolver()
+@Resolver(User)
 export class UserResolver {
+
+  @FieldResolver(() => String)
+  email(@Root() user: User, @Ctx() {req}: MyContext) {
+    if (req.session.userId == user.id) {
+      return user.email
+    }
+    //you are not current user
+    //current users wants to see somebody elses email
+    return ""
+  }
+
   @Query(() => User, { nullable: true })
   me(@Ctx() { req }: MyContext) {
     if (!req.session.userId) {
@@ -59,6 +72,7 @@ export class UserResolver {
     
     let user;
     try {
+
       const result = await getConnection()
         .createQueryBuilder()
         .insert()
